@@ -5,102 +5,110 @@ import math
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# Set page configuration
-st.set_page_config(page_title="Pendulum Damping Animation", layout="wide")
+st.set_page_config(page_title="Data-Driven Pendulum", layout="wide")
 
-st.title("🏗️ Structural Dynamics: Pendulum & Graph Animation")
-st.markdown("Adjust the parameters in the sidebar. The simulation builds the frames dynamically. Click **▶ Play Animation** on the chart to watch the pendulum and the graph sync perfectly.")
+st.title("📊 Data-Driven Oscillation Animation")
+st.markdown("Upload a CSV file containing `Time` and `Displacement` data, or use the generated sine-wave sample data. Click **▶ Play Animation** on the chart to watch.")
 
-# --- SIDEBAR: System Parameters ---
-st.sidebar.header("System Parameters")
-m = st.sidebar.slider("Mass (m) [kg]", min_value=1.0, max_value=50.0, value=10.0, step=1.0)
-k = st.sidebar.slider("Stiffness (k) [N/m]", min_value=10.0, max_value=1000.0, value=200.0, step=10.0)
-c = st.sidebar.slider("Damping Coefficient (c) [Ns/m]", min_value=0.0, max_value=200.0, value=15.0, step=1.0)
-x0 = st.sidebar.slider("Initial Displacement (x0) [m]", min_value=-10.0, max_value=10.0, value=8.0, step=0.5)
-v0 = 0.0  # Initial velocity
+# --- SIDEBAR: Data Management ---
+st.sidebar.header("1. Data Input")
 
-# --- PHYSICS CALCULATIONS ---
-omega_n = math.sqrt(k / m)                  
-c_critical = 2 * math.sqrt(k * m)           
-zeta = c / c_critical                       
+# Generate Sample Data (Sine Wave)
+sample_time = np.arange(0, 10, 0.05)
+# Sine wave with amplitude of 5 and frequency of 1 rad/s
+sample_disp = 5 * np.sin(2 * np.pi * 0.5 * sample_time) 
+sample_df = pd.DataFrame({"Time": sample_time, "Displacement": sample_disp})
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Natural Frequency (ω_n)", f"{omega_n:.2f} rad/s")
-col2.metric("Damping Ratio (ζ)", f"{zeta:.2f}")
+# Provide a download button for the sample CSV
+csv_data = sample_df.to_csv(index=False).encode('utf-8')
+st.sidebar.download_button(
+    label="📥 Download Sample Sine Wave CSV",
+    data=csv_data,
+    file_name='sine_wave_sample.csv',
+    mime='text/csv',
+)
 
-if zeta < 1:
-    col3.metric("System State", "Underdamped")
-    omega_d = omega_n * math.sqrt(1 - zeta**2)
-elif zeta == 1:
-    col3.metric("System State", "Critically Damped")
-    omega_d = 0
+st.sidebar.markdown("---")
+st.sidebar.header("2. Upload Your CSV")
+st.sidebar.markdown("CSV must have columns named **Time** and **Displacement**.")
+uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type="csv")
+
+# --- DATA PROCESSING ---
+if uploaded_file is not None:
+    try:
+        df = pd.read_csv(uploaded_file)
+        if "Time" not in df.columns or "Displacement" not in df.columns:
+            st.error("CSV must contain 'Time' and 'Displacement' columns.")
+            st.stop()
+        st.success("Custom CSV loaded successfully!")
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
+        st.stop()
 else:
-    col3.metric("System State", "Overdamped")
-    omega_d = 0
+    df = sample_df
+    st.info("Currently using the default Sample Sine Wave data. Upload a CSV on the left to use your own data.")
 
-st.divider()
+# Extract arrays for animation
+t_data = df["Time"].values
+x_data = df["Displacement"].values
 
-# --- GENERATE DATA ARRAY ---
-# Instead of a loop with time.sleep, we pre-calculate the math 
-# and let the browser animate it smoothly.
-dt = 0.05
-total_time = 15.0
-t_data = np.arange(0, total_time, dt)
-x_data = []
-
-for t in t_data:
-    if zeta < 1: 
-        A = x0
-        B = (v0 + zeta * omega_n * x0) / omega_d
-        x = math.exp(-zeta * omega_n * t) * (A * math.cos(omega_d * t) + B * math.sin(omega_d * t))
-    elif zeta == 1: 
-        A = x0
-        B = v0 + omega_n * x0
-        x = (A + B * t) * math.exp(-omega_n * t)
-    else: 
-        s1 = -omega_n * (zeta - math.sqrt(zeta**2 - 1))
-        s2 = -omega_n * (zeta + math.sqrt(zeta**2 - 1))
-        A = (v0 - s2 * x0) / (s1 - s2)
-        B = (s1 * x0 - v0) / (s1 - s2)
-        x = A * math.exp(s1 * t) + B * math.exp(s2 * t)
-    x_data.append(x)
+# Downsample if the CSV is huge to prevent browser crash during animation
+if len(t_data) > 300:
+    step = len(t_data) // 300
+    t_data = t_data[::step]
+    x_data = x_data[::step]
+    st.warning(f"Data was large. Downsampled to {len(t_data)} frames for smooth web animation.")
 
 # --- ANIMATION SETUP ---
+max_disp = np.max(np.abs(x_data))
+if max_disp == 0:
+    max_disp = 1.0
+
 # Visual variables for the pendulum
-L = 12.0 # Pendulum visual string length
-pivot_x, pivot_y = 0.0, 5.0
+# Make string length slightly longer than max displacement so it looks realistic
+L = max_disp * 1.5 
+pivot_x, pivot_y = 0.0, L
 y0 = pivot_y - math.sqrt(L**2 - x_data[0]**2)
 
 # Create side-by-side subplots
+# Pendulum X-axis (horizontal) represents displacement. 
+# Graph Y-axis (vertical) represents displacement.
 fig = make_subplots(rows=1, cols=2, column_widths=[0.4, 0.6], 
-                    subplot_titles=("Physical Pendulum", "Oscillation Graph"))
+                    subplot_titles=("Physical Pendulum (X = Displacement)", "Data Graph (Y = Displacement)"))
 
 # 1. Base Traces (Starting Position)
+# Trace 0: Pendulum String
 fig.add_trace(go.Scatter(x=[pivot_x, x_data[0]], y=[pivot_y, y0], mode='lines', line=dict(width=4, color='gray')), row=1, col=1)
+# Trace 1: Pendulum Bob (Mass)
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[y0], mode='markers', marker=dict(size=35, color='red')), row=1, col=1)
+# Trace 2: Oscillation Line
 fig.add_trace(go.Scatter(x=[t_data[0]], y=[x_data[0]], mode='lines', line=dict(width=3, color='blue')), row=1, col=2)
+# Trace 3: Sync Marker (The moving dot on the graph)
+fig.add_trace(go.Scatter(x=[t_data[0]], y=[x_data[0]], mode='markers', marker=dict(size=12, color='red')), row=1, col=2)
 
 # 2. Build Animation Frames
 frames = []
-for i in range(0, len(t_data), 2):  # Skipping every other frame makes it render slightly faster
+for i in range(len(t_data)):
     xi = x_data[i]
-    # Keep the pendulum from breaking math boundaries if initial displacement is wild
-    yi = pivot_y - math.sqrt(max(0.1, L**2 - xi**2)) 
+    ti = t_data[i]
+    # Calculate pendulum vertical position (ensure math domain is safe)
+    yi = pivot_y - math.sqrt(max(0.01, L**2 - xi**2)) 
     
     frames.append(go.Frame(
         data=[
             go.Scatter(x=[pivot_x, xi], y=[pivot_y, yi]), # Update String
             go.Scatter(x=[xi], y=[yi]),                   # Update Mass
-            go.Scatter(x=t_data[:i+1], y=x_data[:i+1])    # Update Graph
+            go.Scatter(x=t_data[:i+1], y=x_data[:i+1]),   # Update Line Graph
+            go.Scatter(x=[ti], y=[xi])                    # Update Graph Sync Dot
         ],
-        traces=[0, 1, 2] # Map the updates to the 3 base traces we made above
+        traces=[0, 1, 2, 3] # Map the updates to the 4 base traces
     ))
 
 fig.frames = frames
 
 # 3. Layout Formatting and Play Buttons
 fig.update_layout(
-    height=550,
+    height=600,
     showlegend=False,
     updatemenus=[dict(
         type="buttons",
@@ -109,7 +117,7 @@ fig.update_layout(
         buttons=[
             dict(label="▶ Play Animation",
                  method="animate",
-                 args=[None, dict(frame=dict(duration=50, redraw=False), transition=dict(duration=0), fromcurrent=True, mode="immediate")]),
+                 args=[None, dict(frame=dict(duration=40, redraw=False), transition=dict(duration=0), fromcurrent=True, mode="immediate")]),
             dict(label="⏸ Pause",
                  method="animate",
                  args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate", transition=dict(duration=0))])
@@ -117,11 +125,16 @@ fig.update_layout(
     )]
 )
 
-# Lock axes so the graph doesn't resize constantly during playback
-fig.update_xaxes(range=[-15, 15], title="X Position", row=1, col=1)
-fig.update_yaxes(range=[-10, 6], title="Y Position", row=1, col=1)
-fig.update_xaxes(range=[0, total_time], title="Time (s)", row=1, col=2)
-fig.update_yaxes(range=[-abs(x0)-2, abs(x0)+2], title="Displacement [m]", row=1, col=2)
+# Set strictly matching axis limits so the visuals sync perfectly
+disp_padding = max_disp * 1.2
+
+# Pendulum Axes
+fig.update_xaxes(range=[-disp_padding, disp_padding], title="Displacement [m]", row=1, col=1)
+fig.update_yaxes(range=[0, L + (L*0.1)], title="Vertical Height [m]", row=1, col=1)
+
+# Graph Axes
+fig.update_xaxes(range=[t_data[0], t_data[-1]], title="Time [s]", row=1, col=2)
+fig.update_yaxes(range=[-disp_padding, disp_padding], title="Displacement [m]", row=1, col=2)
 
 # Render
 st.plotly_chart(fig, use_container_width=True)
