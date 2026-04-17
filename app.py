@@ -125,4 +125,3 @@ fig.update_yaxes(range=[-abs(x0)-2, abs(x0)+2], title="Displacement [m]", row=1,
 
 # Render
 st.plotly_chart(fig, use_container_width=True)
-        
