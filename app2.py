@@ -21,10 +21,14 @@ m = st.sidebar.slider("Mass (m) [kg]", min_value=1.0, max_value=50.0, value=10.0
 k = st.sidebar.slider("Stiffness (k) [N/m]", min_value=10.0, max_value=1000.0, value=200.0, step=10.0)
 c = st.sidebar.slider("Damping Coefficient (c) [Ns/m]", min_value=0.0, max_value=200.0, value=15.0, step=1.0)
 x0 = st.sidebar.slider("Initial Displacement (x0) [m]", min_value=-10.0, max_value=10.0, value=5.0, step=0.5)
-v0 = 0.0  # Initial velocity
 
-total_time = 10.0     # Total simulation time (s)
-num_points = 100      # Exactly 100 data points (makes animation smooth and fast)
+st.sidebar.markdown("---")
+st.sidebar.header("Simulation Settings")
+# NEW FEATURE: User can edit the total simulation time
+total_time = st.sidebar.slider("Total Time [s]", min_value=5.0, max_value=50.0, value=10.0, step=1.0)
+
+v0 = 0.0  # Initial velocity
+num_points = 100  # Keeping it at 100 points ensures smooth web animation regardless of time length
 
 # ---------------------------------------------------------
 # 3. PHYSICS CALCULATIONS
@@ -45,11 +49,11 @@ elif zeta == 1:
 else:
     col3.metric("System State", "Overdamped")
 
-# Create exactly 100 time steps
+# Create exactly 100 time steps across the user-defined total_time
 time_array = np.linspace(0, total_time, num_points)
 x_data = []
 
-# Generate Analytical Data based on User's Code
+# Generate Analytical Data
 for t in time_array:
     if zeta < 1: # Underdamped
         omega_d = omega_n * math.sqrt(1 - zeta**2)
@@ -133,7 +137,7 @@ fig.update_layout(
 
 disp_padding = max_disp * 1.2 
 
-# Graph Axes (Row 1) - X is Displacement, Y is Time (0 at bottom, 10 at top)
+# Graph Axes (Row 1) - X is Displacement, Y is dynamically set to total_time
 fig.update_xaxes(range=[-disp_padding, disp_padding], row=1, col=1)
 fig.update_yaxes(range=[0, total_time], title="Time [seconds]", row=1, col=1)
 
