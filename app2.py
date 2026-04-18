@@ -11,7 +11,7 @@ from plotly.subplots import make_subplots
 st.set_page_config(page_title="Structural Dynamics App", layout="wide")
 
 st.title("🏗️ Structural Dynamics: SDOF Oscillation")
-st.markdown("Adjust parameters below or upload your own data. The graph above tracks **Displacement vs. Time (Vertical)**, perfectly aligned with the **Pendulum's horizontal swing** below.")
+st.markdown("Adjust parameters below. The model represents a **bottom-up fixed support** structure (like a building or water tower). The animation plays in **real-time**.")
 
 # ---------------------------------------------------------
 # 2. SIDEBAR PARAMETERS & DATA IMPORT
@@ -35,7 +35,7 @@ if data_mode == "Simulate Physics":
     total_time = st.sidebar.slider("Total Time [s]", min_value=5.0, max_value=50.0, value=10.0, step=1.0)
     
     v0 = 0.0  # Initial velocity
-    num_points = 100  # Keeping it at 100 points ensures smooth web animation
+    num_points = 150  # Increased slightly for smoother real-time rendering
 
     # --- PHYSICS CALCULATIONS ---
     omega_n = math.sqrt(k / m)                  
@@ -99,10 +99,6 @@ elif data_mode == "Upload Custom CSV":
     if uploaded_file is not None:
         try:
             df = pd.read_csv(uploaded_file)
-            # Find the correct columns even if the user has spaces or different casing
-            col_names = [col.strip().lower() for col in df.columns]
-            
-            # Simple column matching logic
             time_col = next((col for col in df.columns if "time" in col.lower()), None)
             disp_col = next((col for col in df.columns if "disp" in col.lower()), None)
 
@@ -114,8 +110,7 @@ elif data_mode == "Upload Custom CSV":
             x_data = df[disp_col].values
             total_time = np.max(time_array)
             
-            # Downsample if data is too large to prevent browser crash (target ~150 points)
-            if len(time_array) > 150:
+            if len(time_array) > 200:
                 step = len(time_array) // 150
                 time_array = time_array[::step]
                 x_data = x_data[::step]
@@ -131,24 +126,36 @@ elif data_mode == "Upload Custom CSV":
         st.stop()
 
 # ---------------------------------------------------------
-# 5. ANIMATION SETUP & GEOMETRY
+# 5. REAL-TIME CALCULATION & GEOMETRY
 # ---------------------------------------------------------
 max_disp = np.max(np.abs(x_data))
 if max_disp == 0: max_disp = 1.0 
 
-# Pendulum visual constraints
+# Structural visual constraints (Bottom-Up Lollipop Model)
 L = max_disp * 1.5 
-pivot_x, pivot_y = 0.0, L 
-y0 = pivot_y - math.sqrt(L**2 - x_data[0]**2)
+pivot_x, pivot_y = 0.0, 0.0 # Pivot is now at the BOTTOM (Fixed Support)
+y0 = math.sqrt(L**2 - x_data[0]**2) # Mass is now at the TOP
 
-# Subplots: 2 Rows, 1 Column. shared_xaxes=True ensures perfectly aligned displacement!
+# Calculate precise milliseconds per frame for Real-Time playback
+dt_seconds = total_time / max(1, len(time_array) - 1)
+frame_duration_ms = int(dt_seconds * 1000)
+
+# Subplots
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.08,
-                    subplot_titles=("Time-History Graph (Time on Vertical Axis)", "Oscillating Pendulum"))
+                    subplot_titles=("Time-History Graph (Time on Vertical Axis)", "Fixed Support Structure (Bottom-Up)"))
 
 # --- BASE TRACES (Frame 0) ---
+# Graph Traces
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='lines', line=dict(color='blue', width=3)), row=1, col=1)
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='markers', marker=dict(color='red', size=12)), row=1, col=1)
-fig.add_trace(go.Scatter(x=[0, x_data[0]], y=[pivot_y, y0], mode='lines', line=dict(color='gray', width=4)), row=2, col=1)
+
+# Structural Traces
+# 1. Fixed Ground Support (Thick black line at y=0)
+ground_width = max_disp * 1.2
+fig.add_trace(go.Scatter(x=[-ground_width, ground_width], y=[0, 0], mode='lines', line=dict(color='black', width=8)), row=2, col=1)
+# 2. Structural Column (String from base to mass)
+fig.add_trace(go.Scatter(x=[pivot_x, x_data[0]], y=[pivot_y, y0], mode='lines', line=dict(color='gray', width=6)), row=2, col=1)
+# 3. Lumped Mass (Top)
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[y0], mode='markers', marker=dict(color='red', size=35)), row=2, col=1)
 
 # --- BUILD ANIMATION FRAMES ---
@@ -156,16 +163,19 @@ frames = []
 for i in range(len(time_array)):
     xi = x_data[i]
     ti = time_array[i]
-    yi = pivot_y - math.sqrt(max(0.01, L**2 - xi**2)) 
+    
+    # Calculate upward Y position ensuring it doesn't break math domain
+    yi = math.sqrt(max(0.01, L**2 - xi**2)) 
     
     frames.append(go.Frame(
         data=[
-            go.Scatter(x=x_data[:i+1], y=time_array[:i+1]), # Graph line extends up
-            go.Scatter(x=[xi], y=[ti]),                     # Graph dot moves
-            go.Scatter(x=[0, xi], y=[pivot_y, yi]),         # String updates
-            go.Scatter(x=[xi], y=[yi])                      # Mass moves
+            go.Scatter(x=x_data[:i+1], y=time_array[:i+1]), # 0: Graph line
+            go.Scatter(x=[xi], y=[ti]),                     # 1: Graph dot
+            go.Scatter(x=[-ground_width, ground_width], y=[0, 0]), # 2: Ground (Static)
+            go.Scatter(x=[pivot_x, xi], y=[pivot_y, yi]),   # 3: Column updates
+            go.Scatter(x=[xi], y=[yi])                      # 4: Mass updates
         ],
-        traces=[0, 1, 2, 3] 
+        traces=[0, 1, 2, 3, 4] 
     ))
 
 fig.frames = frames
@@ -181,7 +191,8 @@ fig.update_layout(
         showactive=False,
         x=0.05, y=1.05,
         buttons=[
-            dict(label="▶ Play", method="animate", args=[None, dict(frame=dict(duration=50, redraw=False), transition=dict(duration=0), fromcurrent=True, mode="immediate")]),
+            # Note: duration is now dynamically set to frame_duration_ms for real-time playback
+            dict(label="▶ Play in Real-Time", method="animate", args=[None, dict(frame=dict(duration=frame_duration_ms, redraw=False), transition=dict(duration=0), fromcurrent=True, mode="immediate")]),
             dict(label="⏸ Pause", method="animate", args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate", transition=dict(duration=0))])
         ]
     )]
@@ -193,8 +204,9 @@ disp_padding = max_disp * 1.2
 fig.update_xaxes(range=[-disp_padding, disp_padding], row=1, col=1)
 fig.update_yaxes(range=[0, total_time], title="Time [seconds]", row=1, col=1)
 
-# Pendulum Axes (Row 2)
+# Structure Axes (Row 2) - Bottom Up!
 fig.update_xaxes(range=[-disp_padding, disp_padding], title="Horizontal Displacement [m]", row=2, col=1)
-fig.update_yaxes(range=[0, L + (L*0.1)], title="Vertical Space", row=2, col=1, showticklabels=False)
+# Y-Axis goes from slightly below ground (-L*0.1) up to past the top of the mass
+fig.update_yaxes(range=[-L*0.1, L + (L*0.2)], title="Elevation", row=2, col=1, showticklabels=False)
 
 st.plotly_chart(fig, use_container_width=True)
