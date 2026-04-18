@@ -10,8 +10,8 @@ from plotly.subplots import make_subplots
 # ---------------------------------------------------------
 st.set_page_config(page_title="Structural Dynamics App", layout="wide")
 
-st.title("🏗️ Structural Dynamics: Inverted Pendulum")
-st.markdown("Adjust parameters below. The model is visually represented as an **inverted pendulum** (pivot at the bottom, mass at the top), which is the classic model for elevated water tanks and single-story structures.")
+st.title("🏗️ Structural Dynamics: Pedestal Model")
+st.markdown("Adjust parameters below. The model represents a structure with a **rigid, non-oscillating base** (like a concrete pedestal) and a **flexible column** attached to the top acting like a spring.")
 
 # ---------------------------------------------------------
 # 2. SIDEBAR PARAMETERS & DATA IMPORT
@@ -86,7 +86,7 @@ if data_mode == "Simulate Physics":
     st.sidebar.download_button(
         label="📥 Download Oscillation Data (CSV)",
         data=csv_data,
-        file_name='inverted_pendulum_data.csv',
+        file_name='pedestal_model_data.csv',
         mime='text/csv'
     )
 
@@ -124,53 +124,60 @@ elif data_mode == "Upload Custom CSV":
         st.stop()
 
 # ---------------------------------------------------------
-# 5. REAL-TIME CALCULATION & INVERTED PENDULUM GEOMETRY
+# 5. REAL-TIME CALCULATION & PEDESTAL GEOMETRY
 # ---------------------------------------------------------
 max_disp = np.max(np.abs(x_data))
 if max_disp == 0: max_disp = 1.0 
 
-# Inverted Pendulum Visual Constraints (Bottom-Up)
-L = max_disp * 1.5 
-pivot_x, pivot_y = 0.0, 0.0  # Pivot is at the Bottom (Ground)
-y0 = math.sqrt(max(0.01, L**2 - x_data[0]**2)) # Mass stands up above pivot
+# Structural Proportions
+L_total = max_disp * 2.0        # Make the overall structure a bit taller
+H_rigid = L_total * 0.3         # The bottom 30% is a completely rigid base
+L_flex = L_total - H_rigid      # The top 70% is the flexible spring/column
+
+# Pivot starts at the top of the rigid base
+pivot_x, pivot_y = 0.0, H_rigid  
+# Calculate mass height based on the flexible length
+y0 = pivot_y + math.sqrt(max(0.01, L_flex**2 - x_data[0]**2)) 
 
 dt_seconds = total_time / max(1, len(time_array) - 1)
 frame_duration_ms = int(dt_seconds * 1000)
 
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.08,
-                    subplot_titles=("Time-History Graph", "Linear SDOF Model (Inverted Pendulum Visual)"))
+                    subplot_titles=("Time-History Graph", "Pedestal Model (Rigid Base + Flexible Top)"))
 
 # --- BASE TRACES (Frame 0) ---
-# Graph
+# Graph Line and Dot (Traces 0 & 1)
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='lines', line=dict(color='blue', width=3)), row=1, col=1)
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='markers', marker=dict(color='red', size=12)), row=1, col=1)
 
-# Inverted Pendulum Structure
 ground_width = max_disp * 1.5
-# Ground (Thick black line at the bottom)
+# Trace 2: Ground (Thick black line at y=0)
 fig.add_trace(go.Scatter(x=[-ground_width, ground_width], y=[0, 0], mode='lines', line=dict(color='black', width=8)), row=2, col=1)
-# Pendulum Rod (Straight rigid line pointing up)
+# Trace 3: Rigid Base (Thick dark grey line that does NOT move)
+fig.add_trace(go.Scatter(x=[0, 0], y=[0, H_rigid], mode='lines', line=dict(color='darkslategray', width=12)), row=2, col=1)
+# Trace 4: Flexible Column (Rod pointing up from the rigid base)
 fig.add_trace(go.Scatter(x=[pivot_x, x_data[0]], y=[pivot_y, y0], mode='lines', line=dict(color='gray', width=4)), row=2, col=1)
-# Pendulum Bob (Round mass at the top)
-fig.add_trace(go.Scatter(x=[x_data[0]], y=[y0], mode='markers', marker=dict(color='firebrick', size=35, symbol='circle')), row=2, col=1)
+# Trace 5: Oscillating Mass (Round bob at the top)
+fig.add_trace(go.Scatter(x=[x_data[0]], y=[y0], mode='markers', marker=dict(color='firebrick', size=35, symbol='square')), row=2, col=1)
 
 # --- BUILD ANIMATION FRAMES ---
 frames = []
 for i in range(len(time_array)):
     xi = x_data[i]
     ti = time_array[i]
-    # Calculate upward position of swinging mass
-    yi = math.sqrt(max(0.01, L**2 - xi**2)) 
+    # Calculate upward position of swinging mass relative to the rigid base
+    yi = pivot_y + math.sqrt(max(0.01, L_flex**2 - xi**2)) 
     
     frames.append(go.Frame(
         data=[
-            go.Scatter(x=x_data[:i+1], y=time_array[:i+1]), 
-            go.Scatter(x=[xi], y=[ti]),                     
-            go.Scatter(x=[-ground_width, ground_width], y=[0, 0]), 
-            go.Scatter(x=[pivot_x, xi], y=[pivot_y, yi]), # Straight rod updates
-            go.Scatter(x=[xi], y=[yi])                    # Bob updates
+            go.Scatter(x=x_data[:i+1], y=time_array[:i+1]), # 0: Graph updates
+            go.Scatter(x=[xi], y=[ti]),                     # 1: Graph dot updates
+            go.Scatter(x=[-ground_width, ground_width], y=[0, 0]), # 2: Ground (Static)
+            go.Scatter(x=[0, 0], y=[0, H_rigid]),           # 3: Rigid Base (Static)
+            go.Scatter(x=[pivot_x, xi], y=[pivot_y, yi]),   # 4: Flexible Column updates
+            go.Scatter(x=[xi], y=[yi])                      # 5: Mass updates
         ],
-        traces=[0, 1, 2, 3, 4] 
+        traces=[0, 1, 2, 3, 4, 5] 
     ))
 
 fig.frames = frames
@@ -199,9 +206,9 @@ disp_padding = max_disp * 1.5
 fig.update_xaxes(range=[-disp_padding, disp_padding], row=1, col=1)
 fig.update_yaxes(range=[0, total_time], title="Time [seconds]", row=1, col=1)
 
-# Inverted Pendulum Axes (1:1 Aspect Ratio locked)
+# Structure Axes (1:1 Aspect Ratio locked)
 fig.update_xaxes(range=[-disp_padding, disp_padding], title="Horizontal Displacement [m]", row=2, col=1)
-# Set axis so it starts slightly below ground and goes past the top of the pendulum
-fig.update_yaxes(range=[-L*0.2, L + (L*0.2)], title="Elevation", row=2, col=1, showticklabels=False, scaleanchor="x", scaleratio=1)
+# Set axis so it starts slightly below ground and goes past the top of the full structure
+fig.update_yaxes(range=[-L_total*0.1, L_total + (L_total*0.2)], title="Elevation", row=2, col=1, showticklabels=False, scaleanchor="x", scaleratio=1)
 
 st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
