@@ -10,8 +10,8 @@ from plotly.subplots import make_subplots
 # ---------------------------------------------------------
 st.set_page_config(page_title="Structural Dynamics App", layout="wide")
 
-st.title("🏗️ Structural Dynamics: SDOF Pendulum")
-st.markdown("Adjust parameters below. The model **looks like a pendulum**, but its oscillation is governed entirely by the **linear structural dynamics** (Mass, Stiffness, Damping) of a fixed column system.")
+st.title("🏗️ Structural Dynamics: Inverted Pendulum")
+st.markdown("Adjust parameters below. The model is visually represented as an **inverted pendulum** (pivot at the bottom, mass at the top), which is the classic model for elevated water tanks and single-story structures.")
 
 # ---------------------------------------------------------
 # 2. SIDEBAR PARAMETERS & DATA IMPORT
@@ -26,7 +26,7 @@ st.sidebar.markdown("---")
 
 if data_mode == "Simulate Physics":
     st.sidebar.header("System Parameters")
-    st.sidebar.caption("Driven by structural m, k, c (not gravity)")
+    st.sidebar.caption("Driven by structural m, k, c")
     m = st.sidebar.slider("Mass (m) [kg]", min_value=1.0, max_value=50.0, value=10.0, step=1.0)
     k = st.sidebar.slider("Stiffness (k) [N/m]", min_value=10.0, max_value=1000.0, value=200.0, step=10.0)
     c = st.sidebar.slider("Damping Coefficient (c) [Ns/m]", min_value=0.0, max_value=200.0, value=15.0, step=1.0)
@@ -86,7 +86,7 @@ if data_mode == "Simulate Physics":
     st.sidebar.download_button(
         label="📥 Download Oscillation Data (CSV)",
         data=csv_data,
-        file_name='sdof_pendulum_data.csv',
+        file_name='inverted_pendulum_data.csv',
         mime='text/csv'
     )
 
@@ -124,34 +124,34 @@ elif data_mode == "Upload Custom CSV":
         st.stop()
 
 # ---------------------------------------------------------
-# 5. REAL-TIME CALCULATION & PENDULUM GEOMETRY
+# 5. REAL-TIME CALCULATION & INVERTED PENDULUM GEOMETRY
 # ---------------------------------------------------------
 max_disp = np.max(np.abs(x_data))
 if max_disp == 0: max_disp = 1.0 
 
-# Pendulum Visual Constraints (Top-Down)
+# Inverted Pendulum Visual Constraints (Bottom-Up)
 L = max_disp * 1.5 
-pivot_x, pivot_y = 0.0, L  # Pivot is at the Top (Ceiling)
-y0 = pivot_y - math.sqrt(L**2 - x_data[0]**2) # Mass hangs down below pivot
+pivot_x, pivot_y = 0.0, 0.0  # Pivot is at the Bottom (Ground)
+y0 = math.sqrt(max(0.01, L**2 - x_data[0]**2)) # Mass stands up above pivot
 
 dt_seconds = total_time / max(1, len(time_array) - 1)
 frame_duration_ms = int(dt_seconds * 1000)
 
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.08,
-                    subplot_titles=("Time-History Graph", "Linear SDOF Model (Pendulum Visual)"))
+                    subplot_titles=("Time-History Graph", "Linear SDOF Model (Inverted Pendulum Visual)"))
 
 # --- BASE TRACES (Frame 0) ---
 # Graph
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='lines', line=dict(color='blue', width=3)), row=1, col=1)
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='markers', marker=dict(color='red', size=12)), row=1, col=1)
 
-# Pendulum Structure
-ceiling_width = max_disp * 1.5
-# Ceiling (Thick black line at the top)
-fig.add_trace(go.Scatter(x=[-ceiling_width, ceiling_width], y=[L, L], mode='lines', line=dict(color='black', width=8)), row=2, col=1)
-# Pendulum String (Straight rigid line)
+# Inverted Pendulum Structure
+ground_width = max_disp * 1.5
+# Ground (Thick black line at the bottom)
+fig.add_trace(go.Scatter(x=[-ground_width, ground_width], y=[0, 0], mode='lines', line=dict(color='black', width=8)), row=2, col=1)
+# Pendulum Rod (Straight rigid line pointing up)
 fig.add_trace(go.Scatter(x=[pivot_x, x_data[0]], y=[pivot_y, y0], mode='lines', line=dict(color='gray', width=4)), row=2, col=1)
-# Pendulum Bob (Round mass)
+# Pendulum Bob (Round mass at the top)
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[y0], mode='markers', marker=dict(color='firebrick', size=35, symbol='circle')), row=2, col=1)
 
 # --- BUILD ANIMATION FRAMES ---
@@ -159,15 +159,15 @@ frames = []
 for i in range(len(time_array)):
     xi = x_data[i]
     ti = time_array[i]
-    # Calculate vertical position of swinging mass
-    yi = pivot_y - math.sqrt(max(0.01, L**2 - xi**2)) 
+    # Calculate upward position of swinging mass
+    yi = math.sqrt(max(0.01, L**2 - xi**2)) 
     
     frames.append(go.Frame(
         data=[
             go.Scatter(x=x_data[:i+1], y=time_array[:i+1]), 
             go.Scatter(x=[xi], y=[ti]),                     
-            go.Scatter(x=[-ceiling_width, ceiling_width], y=[L, L]), 
-            go.Scatter(x=[pivot_x, xi], y=[pivot_y, yi]), # Straight string
+            go.Scatter(x=[-ground_width, ground_width], y=[0, 0]), 
+            go.Scatter(x=[pivot_x, xi], y=[pivot_y, yi]), # Straight rod updates
             go.Scatter(x=[xi], y=[yi])                    # Bob updates
         ],
         traces=[0, 1, 2, 3, 4] 
@@ -199,9 +199,9 @@ disp_padding = max_disp * 1.5
 fig.update_xaxes(range=[-disp_padding, disp_padding], row=1, col=1)
 fig.update_yaxes(range=[0, total_time], title="Time [seconds]", row=1, col=1)
 
-# Pendulum Axes (1:1 Aspect Ratio locked)
+# Inverted Pendulum Axes (1:1 Aspect Ratio locked)
 fig.update_xaxes(range=[-disp_padding, disp_padding], title="Horizontal Displacement [m]", row=2, col=1)
-# Set axis so it starts below the swing and goes slightly past the ceiling
+# Set axis so it starts slightly below ground and goes past the top of the pendulum
 fig.update_yaxes(range=[-L*0.2, L + (L*0.2)], title="Elevation", row=2, col=1, showticklabels=False, scaleanchor="x", scaleratio=1)
 
 st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
