@@ -11,7 +11,7 @@ from plotly.subplots import make_subplots
 st.set_page_config(page_title="Structural Dynamics App", layout="wide")
 
 st.title("🏗️ Structural Dynamics: SDOF Oscillation")
-st.markdown("Adjust parameters below. The model represents a **bottom-up fixed support** structure (like a building or water tower). The animation plays in **real-time**.")
+st.markdown("Adjust parameters below. The model represents a **bottom-up fixed support** structure. The animation plays in **real-time**, is **proportionally scaled**, and you can **scroll to zoom in/out**.")
 
 # ---------------------------------------------------------
 # 2. SIDEBAR PARAMETERS & DATA IMPORT
@@ -34,15 +34,14 @@ if data_mode == "Simulate Physics":
     st.sidebar.header("Simulation Settings")
     total_time = st.sidebar.slider("Total Time [s]", min_value=5.0, max_value=50.0, value=10.0, step=1.0)
     
-    v0 = 0.0  # Initial velocity
-    num_points = 150  # Increased slightly for smoother real-time rendering
+    v0 = 0.0  
+    num_points = 150  
 
     # --- PHYSICS CALCULATIONS ---
     omega_n = math.sqrt(k / m)                  
     c_critical = 2 * math.sqrt(k * m)           
     zeta = c / c_critical                       
 
-    # Display system state on the dashboard
     col1, col2, col3 = st.columns(3)
     col1.metric("Natural Frequency (ω_n)", f"{omega_n:.2f} rad/s")
     col2.metric("Damping Ratio (ζ)", f"{zeta:.2f}")
@@ -54,7 +53,6 @@ if data_mode == "Simulate Physics":
     else:
         col3.metric("System State", "Overdamped")
 
-    # Create time steps and generate data
     time_array = np.linspace(0, total_time, num_points)
     x_data = []
 
@@ -76,7 +74,6 @@ if data_mode == "Simulate Physics":
             x = A * math.exp(s1 * t) + B * math.exp(s2 * t)
         x_data.append(x)
         
-    # --- EXPORT DATA FEATURE ---
     st.sidebar.markdown("---")
     st.sidebar.header("Export Data")
     results_df = pd.DataFrame({
@@ -133,29 +130,22 @@ if max_disp == 0: max_disp = 1.0
 
 # Structural visual constraints (Bottom-Up Lollipop Model)
 L = max_disp * 1.5 
-pivot_x, pivot_y = 0.0, 0.0 # Pivot is now at the BOTTOM (Fixed Support)
-y0 = math.sqrt(L**2 - x_data[0]**2) # Mass is now at the TOP
+pivot_x, pivot_y = 0.0, 0.0 
+y0 = math.sqrt(L**2 - x_data[0]**2) 
 
-# Calculate precise milliseconds per frame for Real-Time playback
 dt_seconds = total_time / max(1, len(time_array) - 1)
 frame_duration_ms = int(dt_seconds * 1000)
 
-# Subplots
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.08,
                     subplot_titles=("Time-History Graph (Time on Vertical Axis)", "Fixed Support Structure (Bottom-Up)"))
 
 # --- BASE TRACES (Frame 0) ---
-# Graph Traces
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='lines', line=dict(color='blue', width=3)), row=1, col=1)
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='markers', marker=dict(color='red', size=12)), row=1, col=1)
 
-# Structural Traces
-# 1. Fixed Ground Support (Thick black line at y=0)
-ground_width = max_disp * 1.2
+ground_width = max_disp * 1.5
 fig.add_trace(go.Scatter(x=[-ground_width, ground_width], y=[0, 0], mode='lines', line=dict(color='black', width=8)), row=2, col=1)
-# 2. Structural Column (String from base to mass)
 fig.add_trace(go.Scatter(x=[pivot_x, x_data[0]], y=[pivot_y, y0], mode='lines', line=dict(color='gray', width=6)), row=2, col=1)
-# 3. Lumped Mass (Top)
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[y0], mode='markers', marker=dict(color='red', size=35)), row=2, col=1)
 
 # --- BUILD ANIMATION FRAMES ---
@@ -163,17 +153,15 @@ frames = []
 for i in range(len(time_array)):
     xi = x_data[i]
     ti = time_array[i]
-    
-    # Calculate upward Y position ensuring it doesn't break math domain
     yi = math.sqrt(max(0.01, L**2 - xi**2)) 
     
     frames.append(go.Frame(
         data=[
-            go.Scatter(x=x_data[:i+1], y=time_array[:i+1]), # 0: Graph line
-            go.Scatter(x=[xi], y=[ti]),                     # 1: Graph dot
-            go.Scatter(x=[-ground_width, ground_width], y=[0, 0]), # 2: Ground (Static)
-            go.Scatter(x=[pivot_x, xi], y=[pivot_y, yi]),   # 3: Column updates
-            go.Scatter(x=[xi], y=[yi])                      # 4: Mass updates
+            go.Scatter(x=x_data[:i+1], y=time_array[:i+1]), 
+            go.Scatter(x=[xi], y=[ti]),                     
+            go.Scatter(x=[-ground_width, ground_width], y=[0, 0]), 
+            go.Scatter(x=[pivot_x, xi], y=[pivot_y, yi]),   
+            go.Scatter(x=[xi], y=[yi])                      
         ],
         traces=[0, 1, 2, 3, 4] 
     ))
@@ -186,27 +174,29 @@ fig.frames = frames
 fig.update_layout(
     height=800, 
     showlegend=False,
+    autosize=True, # Allows the chart to adapt to container width
     updatemenus=[dict(
         type="buttons",
         showactive=False,
         x=0.05, y=1.05,
         buttons=[
-            # Note: duration is now dynamically set to frame_duration_ms for real-time playback
             dict(label="▶ Play in Real-Time", method="animate", args=[None, dict(frame=dict(duration=frame_duration_ms, redraw=False), transition=dict(duration=0), fromcurrent=True, mode="immediate")]),
             dict(label="⏸ Pause", method="animate", args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate", transition=dict(duration=0))])
         ]
     )]
 )
 
-disp_padding = max_disp * 1.2 
+disp_padding = max_disp * 1.5 
 
 # Graph Axes (Row 1)
 fig.update_xaxes(range=[-disp_padding, disp_padding], row=1, col=1)
 fig.update_yaxes(range=[0, total_time], title="Time [seconds]", row=1, col=1)
 
-# Structure Axes (Row 2) - Bottom Up!
+# Structure Axes (Row 2) - This is where the magic happens!
 fig.update_xaxes(range=[-disp_padding, disp_padding], title="Horizontal Displacement [m]", row=2, col=1)
-# Y-Axis goes from slightly below ground (-L*0.1) up to past the top of the mass
-fig.update_yaxes(range=[-L*0.1, L + (L*0.2)], title="Elevation", row=2, col=1, showticklabels=False)
 
-st.plotly_chart(fig, use_container_width=True)
+# Note: scaleanchor="x" and scaleratio=1 forces 1:1 isometric proportions!
+fig.update_yaxes(range=[-L*0.1, L + (L*0.2)], title="Elevation", row=2, col=1, showticklabels=False, scaleanchor="x", scaleratio=1)
+
+# Render with Scroll Zoom enabled
+st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
