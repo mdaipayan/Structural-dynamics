@@ -10,8 +10,8 @@ from plotly.subplots import make_subplots
 # ---------------------------------------------------------
 st.set_page_config(page_title="Structural Dynamics App", layout="wide")
 
-st.title("🏗️ Structural Dynamics: SDOF Oscillation")
-st.markdown("Adjust parameters below. The model represents a **bottom-up fixed support** structure. The animation plays in **real-time**, is **proportionally scaled**, and you can **scroll to zoom in/out**.")
+st.title("🏗️ Structural Dynamics: Bending Column")
+st.markdown("Adjust parameters below. The model represents a **cantilever column**. The column dynamically bends using the cubic mode shape derived from **Euler-Bernoulli beam theory**.")
 
 # ---------------------------------------------------------
 # 2. SIDEBAR PARAMETERS & DATA IMPORT
@@ -26,6 +26,7 @@ st.sidebar.markdown("---")
 
 if data_mode == "Simulate Physics":
     st.sidebar.header("System Parameters")
+    st.sidebar.caption("Note: For a column, Stiffness (k) represents flexural stiffness (3EI/L³)")
     m = st.sidebar.slider("Mass (m) [kg]", min_value=1.0, max_value=50.0, value=10.0, step=1.0)
     k = st.sidebar.slider("Stiffness (k) [N/m]", min_value=10.0, max_value=1000.0, value=200.0, step=10.0)
     c = st.sidebar.slider("Damping Coefficient (c) [Ns/m]", min_value=0.0, max_value=200.0, value=15.0, step=1.0)
@@ -84,13 +85,12 @@ if data_mode == "Simulate Physics":
     st.sidebar.download_button(
         label="📥 Download Oscillation Data (CSV)",
         data=csv_data,
-        file_name='sdof_oscillation_data.csv',
+        file_name='column_oscillation_data.csv',
         mime='text/csv'
     )
 
 elif data_mode == "Upload Custom CSV":
     st.sidebar.header("Upload Data")
-    st.sidebar.markdown("Your CSV must contain columns named **Time** and **Displacement**.")
     uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type="csv")
     
     if uploaded_file is not None:
@@ -123,30 +123,39 @@ elif data_mode == "Upload Custom CSV":
         st.stop()
 
 # ---------------------------------------------------------
-# 5. REAL-TIME CALCULATION & GEOMETRY
+# 5. REAL-TIME CALCULATION & COLUMN GEOMETRY
 # ---------------------------------------------------------
 max_disp = np.max(np.abs(x_data))
 if max_disp == 0: max_disp = 1.0 
 
-# Structural visual constraints (Bottom-Up Lollipop Model)
+# Structural visual constraints
 L = max_disp * 1.5 
-pivot_x, pivot_y = 0.0, 0.0 
 y0 = math.sqrt(L**2 - x_data[0]**2) 
+
+# Calculate the cubic bending shape of a cantilever beam for the first frame
+# Mode shape: x(y) = X_max * (y^2 * (3L - y)) / (2 * L^3)
+y_curve_0 = np.linspace(0, y0, 20)
+x_curve_0 = x_data[0] * (y_curve_0**2 * (3*y0 - y_curve_0)) / (2 * y0**3)
 
 dt_seconds = total_time / max(1, len(time_array) - 1)
 frame_duration_ms = int(dt_seconds * 1000)
 
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.08,
-                    subplot_titles=("Time-History Graph (Time on Vertical Axis)", "Fixed Support Structure (Bottom-Up)"))
+                    subplot_titles=("Time-History Graph", "Fixed Cantilever Column (Bending Mode)"))
 
 # --- BASE TRACES (Frame 0) ---
+# Graph
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='lines', line=dict(color='blue', width=3)), row=1, col=1)
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='markers', marker=dict(color='red', size=12)), row=1, col=1)
 
+# Structure
 ground_width = max_disp * 1.5
+# Ground
 fig.add_trace(go.Scatter(x=[-ground_width, ground_width], y=[0, 0], mode='lines', line=dict(color='black', width=8)), row=2, col=1)
-fig.add_trace(go.Scatter(x=[pivot_x, x_data[0]], y=[pivot_y, y0], mode='lines', line=dict(color='gray', width=6)), row=2, col=1)
-fig.add_trace(go.Scatter(x=[x_data[0]], y=[y0], mode='markers', marker=dict(color='red', size=35)), row=2, col=1)
+# Bending Column (Thick slate gray line)
+fig.add_trace(go.Scatter(x=x_curve_0, y=y_curve_0, mode='lines', line=dict(color='slategray', width=16)), row=2, col=1)
+# Lumped Mass (Changed to a heavy square structural block)
+fig.add_trace(go.Scatter(x=[x_data[0]], y=[y0], mode='markers', marker=dict(color='firebrick', size=45, symbol='square')), row=2, col=1)
 
 # --- BUILD ANIMATION FRAMES ---
 frames = []
@@ -155,12 +164,16 @@ for i in range(len(time_array)):
     ti = time_array[i]
     yi = math.sqrt(max(0.01, L**2 - xi**2)) 
     
+    # Recalculate the bending curve for every single frame
+    y_curve = np.linspace(0, yi, 20)
+    x_curve = xi * (y_curve**2 * (3*yi - y_curve)) / (2 * yi**3)
+    
     frames.append(go.Frame(
         data=[
             go.Scatter(x=x_data[:i+1], y=time_array[:i+1]), 
             go.Scatter(x=[xi], y=[ti]),                     
             go.Scatter(x=[-ground_width, ground_width], y=[0, 0]), 
-            go.Scatter(x=[pivot_x, xi], y=[pivot_y, yi]),   
+            go.Scatter(x=x_curve, y=y_curve), # The column bends!  
             go.Scatter(x=[xi], y=[yi])                      
         ],
         traces=[0, 1, 2, 3, 4] 
@@ -174,7 +187,7 @@ fig.frames = frames
 fig.update_layout(
     height=800, 
     showlegend=False,
-    autosize=True, # Allows the chart to adapt to container width
+    autosize=True,
     updatemenus=[dict(
         type="buttons",
         showactive=False,
@@ -188,15 +201,12 @@ fig.update_layout(
 
 disp_padding = max_disp * 1.5 
 
-# Graph Axes (Row 1)
+# Graph Axes
 fig.update_xaxes(range=[-disp_padding, disp_padding], row=1, col=1)
 fig.update_yaxes(range=[0, total_time], title="Time [seconds]", row=1, col=1)
 
-# Structure Axes (Row 2) - This is where the magic happens!
+# Column Axes (With 1:1 Aspect Ratio)
 fig.update_xaxes(range=[-disp_padding, disp_padding], title="Horizontal Displacement [m]", row=2, col=1)
+fig.update_yaxes(range=[-L*0.1, L + (L*0.3)], title="Elevation", row=2, col=1, showticklabels=False, scaleanchor="x", scaleratio=1)
 
-# Note: scaleanchor="x" and scaleratio=1 forces 1:1 isometric proportions!
-fig.update_yaxes(range=[-L*0.1, L + (L*0.2)], title="Elevation", row=2, col=1, showticklabels=False, scaleanchor="x", scaleratio=1)
-
-# Render with Scroll Zoom enabled
 st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
