@@ -10,8 +10,8 @@ from plotly.subplots import make_subplots
 # ---------------------------------------------------------
 st.set_page_config(page_title="Structural Dynamics App", layout="wide")
 
-st.title("🏗️ Structural Dynamics: Bending Column")
-st.markdown("Adjust parameters below. The model represents a **cantilever column**. The column dynamically bends using the cubic mode shape derived from **Euler-Bernoulli beam theory**.")
+st.title("🏗️ Structural Dynamics: SDOF Pendulum")
+st.markdown("Adjust parameters below. The model **looks like a pendulum**, but its oscillation is governed entirely by the **linear structural dynamics** (Mass, Stiffness, Damping) of a fixed column system.")
 
 # ---------------------------------------------------------
 # 2. SIDEBAR PARAMETERS & DATA IMPORT
@@ -26,7 +26,7 @@ st.sidebar.markdown("---")
 
 if data_mode == "Simulate Physics":
     st.sidebar.header("System Parameters")
-    st.sidebar.caption("Note: For a column, Stiffness (k) represents flexural stiffness (3EI/L³)")
+    st.sidebar.caption("Driven by structural m, k, c (not gravity)")
     m = st.sidebar.slider("Mass (m) [kg]", min_value=1.0, max_value=50.0, value=10.0, step=1.0)
     k = st.sidebar.slider("Stiffness (k) [N/m]", min_value=10.0, max_value=1000.0, value=200.0, step=10.0)
     c = st.sidebar.slider("Damping Coefficient (c) [Ns/m]", min_value=0.0, max_value=200.0, value=15.0, step=1.0)
@@ -57,6 +57,7 @@ if data_mode == "Simulate Physics":
     time_array = np.linspace(0, total_time, num_points)
     x_data = []
 
+    # Calculate analytical SDOF column dynamics
     for t in time_array:
         if zeta < 1: 
             omega_d = omega_n * math.sqrt(1 - zeta**2)
@@ -85,7 +86,7 @@ if data_mode == "Simulate Physics":
     st.sidebar.download_button(
         label="📥 Download Oscillation Data (CSV)",
         data=csv_data,
-        file_name='column_oscillation_data.csv',
+        file_name='sdof_pendulum_data.csv',
         mime='text/csv'
     )
 
@@ -123,58 +124,51 @@ elif data_mode == "Upload Custom CSV":
         st.stop()
 
 # ---------------------------------------------------------
-# 5. REAL-TIME CALCULATION & COLUMN GEOMETRY
+# 5. REAL-TIME CALCULATION & PENDULUM GEOMETRY
 # ---------------------------------------------------------
 max_disp = np.max(np.abs(x_data))
 if max_disp == 0: max_disp = 1.0 
 
-# Structural visual constraints
+# Pendulum Visual Constraints (Top-Down)
 L = max_disp * 1.5 
-y0 = math.sqrt(L**2 - x_data[0]**2) 
-
-# Calculate the cubic bending shape of a cantilever beam for the first frame
-# Mode shape: x(y) = X_max * (y^2 * (3L - y)) / (2 * L^3)
-y_curve_0 = np.linspace(0, y0, 20)
-x_curve_0 = x_data[0] * (y_curve_0**2 * (3*y0 - y_curve_0)) / (2 * y0**3)
+pivot_x, pivot_y = 0.0, L  # Pivot is at the Top (Ceiling)
+y0 = pivot_y - math.sqrt(L**2 - x_data[0]**2) # Mass hangs down below pivot
 
 dt_seconds = total_time / max(1, len(time_array) - 1)
 frame_duration_ms = int(dt_seconds * 1000)
 
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.08,
-                    subplot_titles=("Time-History Graph", "Fixed Cantilever Column (Bending Mode)"))
+                    subplot_titles=("Time-History Graph", "Linear SDOF Model (Pendulum Visual)"))
 
 # --- BASE TRACES (Frame 0) ---
 # Graph
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='lines', line=dict(color='blue', width=3)), row=1, col=1)
 fig.add_trace(go.Scatter(x=[x_data[0]], y=[time_array[0]], mode='markers', marker=dict(color='red', size=12)), row=1, col=1)
 
-# Structure
-ground_width = max_disp * 1.5
-# Ground
-fig.add_trace(go.Scatter(x=[-ground_width, ground_width], y=[0, 0], mode='lines', line=dict(color='black', width=8)), row=2, col=1)
-# Bending Column (Thick slate gray line)
-fig.add_trace(go.Scatter(x=x_curve_0, y=y_curve_0, mode='lines', line=dict(color='slategray', width=16)), row=2, col=1)
-# Lumped Mass (Changed to a heavy square structural block)
-fig.add_trace(go.Scatter(x=[x_data[0]], y=[y0], mode='markers', marker=dict(color='firebrick', size=45, symbol='square')), row=2, col=1)
+# Pendulum Structure
+ceiling_width = max_disp * 1.5
+# Ceiling (Thick black line at the top)
+fig.add_trace(go.Scatter(x=[-ceiling_width, ceiling_width], y=[L, L], mode='lines', line=dict(color='black', width=8)), row=2, col=1)
+# Pendulum String (Straight rigid line)
+fig.add_trace(go.Scatter(x=[pivot_x, x_data[0]], y=[pivot_y, y0], mode='lines', line=dict(color='gray', width=4)), row=2, col=1)
+# Pendulum Bob (Round mass)
+fig.add_trace(go.Scatter(x=[x_data[0]], y=[y0], mode='markers', marker=dict(color='firebrick', size=35, symbol='circle')), row=2, col=1)
 
 # --- BUILD ANIMATION FRAMES ---
 frames = []
 for i in range(len(time_array)):
     xi = x_data[i]
     ti = time_array[i]
-    yi = math.sqrt(max(0.01, L**2 - xi**2)) 
-    
-    # Recalculate the bending curve for every single frame
-    y_curve = np.linspace(0, yi, 20)
-    x_curve = xi * (y_curve**2 * (3*yi - y_curve)) / (2 * yi**3)
+    # Calculate vertical position of swinging mass
+    yi = pivot_y - math.sqrt(max(0.01, L**2 - xi**2)) 
     
     frames.append(go.Frame(
         data=[
             go.Scatter(x=x_data[:i+1], y=time_array[:i+1]), 
             go.Scatter(x=[xi], y=[ti]),                     
-            go.Scatter(x=[-ground_width, ground_width], y=[0, 0]), 
-            go.Scatter(x=x_curve, y=y_curve), # The column bends!  
-            go.Scatter(x=[xi], y=[yi])                      
+            go.Scatter(x=[-ceiling_width, ceiling_width], y=[L, L]), 
+            go.Scatter(x=[pivot_x, xi], y=[pivot_y, yi]), # Straight string
+            go.Scatter(x=[xi], y=[yi])                    # Bob updates
         ],
         traces=[0, 1, 2, 3, 4] 
     ))
@@ -205,8 +199,9 @@ disp_padding = max_disp * 1.5
 fig.update_xaxes(range=[-disp_padding, disp_padding], row=1, col=1)
 fig.update_yaxes(range=[0, total_time], title="Time [seconds]", row=1, col=1)
 
-# Column Axes (With 1:1 Aspect Ratio)
+# Pendulum Axes (1:1 Aspect Ratio locked)
 fig.update_xaxes(range=[-disp_padding, disp_padding], title="Horizontal Displacement [m]", row=2, col=1)
-fig.update_yaxes(range=[-L*0.1, L + (L*0.3)], title="Elevation", row=2, col=1, showticklabels=False, scaleanchor="x", scaleratio=1)
+# Set axis so it starts below the swing and goes slightly past the ceiling
+fig.update_yaxes(range=[-L*0.2, L + (L*0.2)], title="Elevation", row=2, col=1, showticklabels=False, scaleanchor="x", scaleratio=1)
 
 st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
